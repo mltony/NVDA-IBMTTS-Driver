@@ -360,6 +360,8 @@ def playStream():
 	def qqq():
 		mylog(f"sendIndexes from onDone: {localIndexes}")
 		sendIndexes(localIndexes)
+	if audioStream.tell() == 0:
+		audioStream.write(b'\0'*2)
 	_callbackExec(bgPlay, audioStream.getvalue(), onDone=qqq if len(localIndexes) > 0 else None)
 	audioStream.truncate(0)
 	audioStream.seek(0)

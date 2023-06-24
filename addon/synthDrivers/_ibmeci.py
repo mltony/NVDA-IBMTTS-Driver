@@ -16,6 +16,10 @@ from ._settingsDB import appConfig, speechConfig
 
 addonHandler.initTranslation()
 
+def mylog(s):
+    with open(r"H:\3.txt", 'a', encoding='utf-8') as f:
+        print(s, file=f)
+
 
 class  ECIParam:
 	eciSynthMode=0
@@ -313,9 +317,10 @@ def _callbackExec(func, *args, **kwargs):
 def setLast(lp):
 	global lastindex
 	lastindex = lp
+	mylog(f"setLast/onIndexReached({lp})")
 	onIndexReached(lp)
 
-def bgPlay(stri):
+def bgPlay(stri, onDone=None):
 	global player, currentSampleRate
 	if not player or len(stri) == 0: return
 	# Sometimes player.feed() tries to open the device when it's already open,
@@ -324,8 +329,11 @@ def bgPlay(stri):
 	tries = 0
 	while tries < 10:
 		try:
-			player.feed(stri)
+			onDoneStr = "onDone" if onDone is not None else ""
+			mylog(f"bgPlay.player.feed {onDoneStr}")
+			player.feed(stri, onDone=onDone)
 			if tries > 0:
+				mylog("retries={tries}")
 				log.warning("Eloq speech retries: %d" % (tries))
 			return
 		except FileNotFoundError:
@@ -339,17 +347,22 @@ def bgPlay(stri):
 	log.error("Eloq speech failed to feed one buffer.")
 
 indexes = []
-def sendIndexes():
-	global indexes
-	for i in indexes: _callbackExec(setLast, i)
-	indexes = []
+def sendIndexes(indexes):
+	for i in indexes: setLast(i)
 
 def playStream():
 	global audioStream
-	_callbackExec(bgPlay, audioStream.getvalue())
+	mylog(f"playStream()")
+	global indexes
+	localIndexes = indexes[:]
+	indexes = []
+
+	def qqq():
+		mylog(f"sendIndexes from onDone: {localIndexes}")
+		sendIndexes(localIndexes)
+	_callbackExec(bgPlay, audioStream.getvalue(), onDone=qqq if len(localIndexes) > 0 else None)
 	audioStream.truncate(0)
 	audioStream.seek(0)
-	sendIndexes()
 
 endStringReached = False
 
@@ -357,18 +370,25 @@ endStringReached = False
 def eciCallback (h, ms, lp, dt):
 	global audioStream, speaking, END_STRING_MARK, endMarkersCount, indexes, endStringReached
 	if speaking and ms == ECIMessage.eciWaveformBuffer:
-		audioStream.write(string_at(buffer, lp*2))
+		mylog(f"eciCallback(ECIMessage)")
 		if audioStream.tell() >= samples*2: playStream()
+		audioStream.write(string_at(buffer, lp*2))
 		endStringReached = False
 	elif ms==ECIMessage.eciIndexReply:
 		if lp == END_STRING_MARK:
+			mylog(f"eciCallback(eciIndexReply, END_STRING_MARK)")
 			if audioStream.tell() > 0: playStream()
-			sendIndexes()
+			#mylog(f"sendIndexes from eciCallback")
+			#sendIndexes()
 			_callbackExec(endStringEvent)
 			endStringReached = True
 		else:
+			mylog(f"eciCallback(eciIndexReply, lp={lp}, endStringReached={endStringReached})")
 			if endStringReached: _callbackExec(setLast, lp)
-			else: indexes.append(lp)
+			else: 
+				mylog(f"eciCallback: indexes.append({lp})")
+				indexes.append(lp)
+			playStream()
 	return ECICallbackReturn.eciDataProcessed
 
 class CallbackThread(threading.Thread):
@@ -410,6 +430,7 @@ def initialize(indexCallback, doneCallback):
 	toggleProbileSwitchRegistration(config.post_configProfileSwitch.register)
 
 def speak(text):
+	mylog(f"speak({text})")
 	# deleted the following fix because is incompatible with NVDA's speech change command. Now send it from speak in ibmeci.py
 	#Sometimes the synth slows down for one string of text. Why?
 	#Trying to fix it here.
@@ -417,6 +438,7 @@ def speak(text):
 	dll.eciAddText(handle, text)
 
 def index(x):
+	mylog(f"index({x})")
 	dll.eciInsertIndex(handle, x)
 
 END_STRING_MARK = 0xffff

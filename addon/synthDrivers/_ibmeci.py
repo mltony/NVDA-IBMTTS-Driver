@@ -156,6 +156,20 @@ dictHandles={}
 params = {}
 vparams = {}
 
+ff = open(r"H:\3.txt", 'w', encoding='utf-8')
+import time, tones, traceback
+ts = 0
+def mylog(s):
+    global ts
+    dtms = 1000* (time.time() - ts)
+    print(f"{dtms:.1f} {s}", file=ff)
+    ff.flush()
+
+def indent(s, n=1):
+    return "\n".join(
+        " " * 4 * n + l
+        for l in s.splitlines()
+    )
 class EciThread(threading.Thread):
 	def run(self):
 		global vparams, params, speaking, endMarkersCount
@@ -343,6 +357,7 @@ def sendIndexes(indexes):
 
 def playStream(flushSize=None):
 	global audioStream, indexes
+	mylog(f"playStream() as={audioStream.tell()} indexes={len(indexes)}")
 	localIndexes = indexes
 	indexes = []
 	onDone = None if len(localIndexes) == 0 else lambda localIndexes=localIndexes: sendIndexes(localIndexes)
@@ -366,6 +381,7 @@ endStringReached = False
 def eciCallback (h, ms, lp, dt):
 	global audioStream, speaking, END_STRING_MARK, endMarkersCount, indexes, endStringReached
 	if speaking and ms == ECIMessage.eciWaveformBuffer:
+		mylog(f"eciWaveformBuffer lp={lp} as={audioStream.tell()} indexes={len(indexes)}")
 		if (
 			(
 				audioStream.tell() >= samples*2
@@ -384,10 +400,12 @@ def eciCallback (h, ms, lp, dt):
 			playStream(flushSize=flushSize)
 	elif ms==ECIMessage.eciIndexReply:
 		if lp == END_STRING_MARK:
+			mylog("ECIMessage END_STRING_MARK")
 			playStream()
 			_callbackExec(endStringEvent)
 			endStringReached = True
 		else:
+			mylog(f"ECIMessage lp={lp}")
 			if endStringReached: _callbackExec(setLast, lp)
 			else: indexes.append(lp)
 	return ECICallbackReturn.eciDataProcessed
@@ -431,6 +449,7 @@ def initialize(indexCallback, doneCallback):
 	toggleProbileSwitchRegistration(config.post_configProfileSwitch.register)
 
 def speak(text):
+	mylog(f"speak({text})")
 	# deleted the following fix because is incompatible with NVDA's speech change command. Now send it from speak in ibmeci.py
 	#Sometimes the synth slows down for one string of text. Why?
 	#Trying to fix it here.
@@ -438,23 +457,28 @@ def speak(text):
 	dll.eciAddText(handle, text)
 
 def index(x):
+	mylog(f"index({x})")
 	dll.eciInsertIndex(handle, x)
 
 END_STRING_MARK = 0xffff
 endMarkersCount = 0
 def setEndStringMark():
+	mylog(f"setEndStringMark()")
 	global endMarkersCount, END_STRING_MARK
 	dll.eciInsertIndex(handle, END_STRING_MARK)
 	endMarkersCount+=1
 
-
 def synth():
+	global ts
+	ts = time.time()
+	mylog(f"synth()")
 	global idleTimer, speaking
 	speaking = True
 	idleTimer.cancel()
 	dll.eciSynthesize(handle)
 
 def stop():
+	mylog(f"stop()")
 	user32.PostThreadMessageA(eciThreadId, WM_SILENCE, 0, 0)
 
 def pause(switch):
@@ -553,14 +577,20 @@ def loadDictForLanguage():
 	else: return None
 
 def endStringEvent():
+	mylog(f"endStringEvent()")
 	global idleTimer, speaking, endMarkersCount
 	endMarkersCount -=1
 	if endMarkersCount == 0:
 		speaking = False
-		idleTimer = threading.Timer(0.3, idlePlayer)
+		idleTimer = threading.Timer(0.001, idlePlayer)
 		idleTimer.start()
 
 def idlePlayer():
+	try:
+		raise Exception()
+	except:
+		st = traceback.format_exc()
+	mylog(f"idlePlayer()\n{indent(st)}")
 	global player, speaking
 	if not speaking:
 		player.idle()
